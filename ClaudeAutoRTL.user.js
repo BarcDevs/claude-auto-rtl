@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Claude/Gemini Auto RTL (per-block, LinkedIn-style)
 // @namespace    bar.rtl.claude
-// @version      1.7
-// @description  Auto-detect direction per text block by majority strong-char count (Hebrew=RTL, English=LTR), like LinkedIn posts. Always on, no manual toggle needed. Code blocks stay LTR.
+// @version      1.8
+// @description  Auto-detect direction per text block by majority strong-char count (Hebrew=RTL, English=LTR), like LinkedIn posts. Live input boxes lock to first-strong-char instead. Always on, no manual toggle needed. Code blocks stay LTR.
 // @match        https://claude.ai/*
 // @match        https://gemini.google.com/*
 // @run-at       document-idle
@@ -33,6 +33,18 @@
     }
     if (rtlCount === 0 && ltrCount === 0) return null // no strong char - leave as-is
     return rtlCount >= ltrCount ? 'rtl' : 'ltr'
+  }
+
+  // First-strong-char, not majority: for a live composer, direction must lock
+  // in on the first strong character typed and stay put (like dir="auto").
+  // Majority-count would flip the whole box mid-sentence once an English word
+  // outweighs the Hebrew already typed.
+  function detectDirectionFirstStrong(text) {
+    for (const ch of text) {
+      if (RTL_CHAR.test(ch)) return 'rtl'
+      if (LTR_CHAR.test(ch)) return 'ltr'
+    }
+    return null
   }
 
   function applyDirection(el, dir) {
@@ -73,7 +85,7 @@
       el.setAttribute('data-rtl-bound', '')
       const update = () => {
         const text = el.value ?? el.textContent ?? ''
-        const dir = detectDirection(text) || 'rtl' // default to RTL when empty
+        const dir = detectDirectionFirstStrong(text) || 'rtl' // default to RTL when empty
         applyDirection(el, dir)
       }
       el.addEventListener('input', update)
@@ -81,7 +93,7 @@
     })
   }
 
-  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.7')
+  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.8')
 
   // Initial pass
   scanRoot(document.body)
