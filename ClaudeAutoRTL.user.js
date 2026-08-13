@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Claude/Gemini Auto RTL (per-block, LinkedIn-style)
 // @namespace    bar.rtl.claude
-// @version      1.8
+// @version      1.9
 // @description  Auto-detect direction per text block by majority strong-char count (Hebrew=RTL, English=LTR), like LinkedIn posts. Live input boxes lock to first-strong-char instead. Always on, no manual toggle needed. Code blocks stay LTR.
 // @match        https://claude.ai/*
 // @match        https://gemini.google.com/*
@@ -16,6 +16,7 @@
 
   const TEXT_SELECTOR = 'p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th, dd, dt'
   const SKIP_ANCESTOR_SELECTOR = 'pre, code'
+  const LIVE_INPUT_ANCESTOR_SELECTOR = 'textarea, div[contenteditable="true"]'
 
   const RTL_CHAR = /[\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFC]/
   const LTR_CHAR = /[A-Za-z]/
@@ -56,6 +57,7 @@
 
   function tagElement(el) {
     if (el.closest(SKIP_ANCESTOR_SELECTOR)) return
+    if (el.closest(LIVE_INPUT_ANCESTOR_SELECTOR)) return // handled by bindInputs instead
     const text = el.textContent?.trim()
     if (!text) return
     const dir = detectDirection(text)
@@ -93,7 +95,7 @@
     })
   }
 
-  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.8')
+  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.9')
 
   // Initial pass
   scanRoot(document.body)
