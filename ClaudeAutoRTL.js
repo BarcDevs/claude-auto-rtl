@@ -1,9 +1,10 @@
 // ==UserScript==
-// @name         Claude.ai Auto RTL (per-block, LinkedIn-style)
+// @name         Claude/Gemini Auto RTL (per-block, LinkedIn-style)
 // @namespace    bar.rtl.claude
-// @version      1.6
+// @version      1.7
 // @description  Auto-detect direction per text block by majority strong-char count (Hebrew=RTL, English=LTR), like LinkedIn posts. Always on, no manual toggle needed. Code blocks stay LTR.
 // @match        https://claude.ai/*
+// @match        https://gemini.google.com/*
 // @run-at       document-idle
 // @grant        none
 // ==/UserScript==
@@ -78,7 +79,7 @@
     })
   }
 
-  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.6')
+  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.7')
 
   // Initial pass
   scanRoot(document.body)
