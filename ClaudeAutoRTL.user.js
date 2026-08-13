@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Claude/Gemini Auto RTL (per-block, LinkedIn-style)
 // @namespace    bar.rtl.claude
-// @version      1.10
-// @description  Auto-detect direction per text block by majority strong-char count (Hebrew=RTL, English=LTR), like LinkedIn posts. Live input boxes lock to first-strong-char instead. Always on, no manual toggle needed. Code blocks stay LTR.
+// @version      1.11
+// @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts. Live input boxes lock to first-strong-char instead. Always on, no manual toggle needed. Code blocks stay LTR.
 // @match        https://claude.ai/*
 // @match        https://gemini.google.com/*
 // @run-at       document-idle
@@ -22,18 +22,22 @@
   const LTR_CHAR = /[A-Za-z]/
 
   function detectDirection(text) {
-    // Majority-count, not first-strong-char: a Hebrew paragraph that opens
-    // with an English word/number would otherwise get tagged ltr, then the
-    // browser's bidi algorithm reorders the embedded Hebrew runs inside an
-    // LTR block and the whole thing turns into a jumbled mess.
-    let rtlCount = 0
-    let ltrCount = 0
-    for (const ch of text) {
-      if (RTL_CHAR.test(ch)) rtlCount++
-      else if (LTR_CHAR.test(ch)) ltrCount++
+    // Majority by WORD count, not char count and not first-strong-char.
+    // Char-count breaks on technical Hebrew prose: English words average
+    // longer than Hebrew ones, so a handful of terms like "cosine
+    // similarity"/"declining/improving" can out-weight a Hebrew-majority
+    // paragraph on raw character count alone. Word count doesn't have that
+    // length bias, and first-strong-char breaks whenever the paragraph opens
+    // with an English word/number - then the browser's bidi algorithm
+    // reorders the embedded Hebrew runs inside an ltr block into a mess.
+    let rtlWords = 0
+    let ltrWords = 0
+    for (const word of text.split(/\s+/)) {
+      if (RTL_CHAR.test(word)) rtlWords++
+      else if (LTR_CHAR.test(word)) ltrWords++
     }
-    if (rtlCount === 0 && ltrCount === 0) return null // no strong char - leave as-is
-    return rtlCount >= ltrCount ? 'rtl' : 'ltr'
+    if (rtlWords === 0 && ltrWords === 0) return null // no strong char - leave as-is
+    return rtlWords >= ltrWords ? 'rtl' : 'ltr'
   }
 
   // First-strong-char, not majority: for a live composer, direction must lock
@@ -113,7 +117,7 @@
     })
   }
 
-  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.10')
+  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.11')
 
   // Initial pass
   scanRoot(document.body)
