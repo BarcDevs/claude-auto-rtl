@@ -7,8 +7,8 @@
 // @match        https://gemini.google.com/*
 // @run-at       document-idle
 // @grant        none
-// @updateURL    https://raw.githubusercontent.com/BarcDevs/claude-auto-rtl/master/ClaudeAutoRTL.user.js
-// @downloadURL  https://raw.githubusercontent.com/BarcDevs/claude-auto-rtl/master/ClaudeAutoRTL.user.js
+// @updateURL    https://raw.githubusercontent.com/BarcDevs/claude-auto-rtl/main/ClaudeAutoRTL.user.js
+// @downloadURL  https://raw.githubusercontent.com/BarcDevs/claude-auto-rtl/main/ClaudeAutoRTL.user.js
 // ==/UserScript==
 
 ;(() => {
