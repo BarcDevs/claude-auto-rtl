@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Claude/Gemini Auto RTL (per-block, LinkedIn-style)
 // @namespace    bar.rtl.claude
-// @version      1.9
+// @version      1.10
 // @description  Auto-detect direction per text block by majority strong-char count (Hebrew=RTL, English=LTR), like LinkedIn posts. Live input boxes lock to first-strong-char instead. Always on, no manual toggle needed. Code blocks stay LTR.
 // @match        https://claude.ai/*
 // @match        https://gemini.google.com/*
@@ -55,10 +55,28 @@
     el.setAttribute('data-rtl-auto', dir)
   }
 
+  // Text for direction-counting purposes, skipping inline <code> spans
+  // (variable/function names) - those are technical tokens embedded in prose,
+  // not evidence of the paragraph's actual reading direction, and long
+  // identifiers like DEFAULT_WEIGHTS/adaptWeights/semanticScore can otherwise
+  // outweigh the surrounding Hebrew and flip the whole paragraph to ltr.
+  function directionText(el) {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        return node.parentElement?.closest('code') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT
+      },
+    })
+    let text = ''
+    let node
+    while ((node = walker.nextNode())) text += node.nodeValue
+    return text
+  }
+
   function tagElement(el) {
     if (el.closest(SKIP_ANCESTOR_SELECTOR)) return
     if (el.closest(LIVE_INPUT_ANCESTOR_SELECTOR)) return // handled by bindInputs instead
-    const text = el.textContent?.trim()
+    if (!el.textContent?.trim()) return
+    const text = directionText(el).trim()
     if (!text) return
     const dir = detectDirection(text)
     if (!dir) return
@@ -95,7 +113,7 @@
     })
   }
 
-  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.9')
+  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.10')
 
   // Initial pass
   scanRoot(document.body)
