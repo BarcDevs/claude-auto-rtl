@@ -7,8 +7,10 @@ Direction is chosen by majority strong-character count per block, not just the f
 ## Install
 
 1. Install [Tampermonkey](https://www.tampermonkey.net/) (or any userscript manager).
-2. Create a new script and paste the contents of `ClaudeAutoRTL.js`.
-3. Save. It runs automatically on `https://claude.ai/*` and `https://gemini.google.com/*`.
+2. Click: [Install ClaudeAutoRTL.user.js](https://raw.githubusercontent.com/BarcDevs/claude-auto-rtl/master/ClaudeAutoRTL.user.js) — Tampermonkey will detect the `.user.js` file and open its install prompt automatically.
+3. Confirm install. It runs automatically on `https://claude.ai/*` and `https://gemini.google.com/*`.
+
+Updates: Tampermonkey periodically re-checks this URL for new `@version` values and offers to update.
 
 ## Notes
 
