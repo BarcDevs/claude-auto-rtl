@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Claude/Gemini Auto RTL (per-block, LinkedIn-style)
 // @namespace    bar.rtl.claude
-// @version      1.14
-// @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts. Lists (ol/ul) are tagged as a whole so markers don't jump sides per item. Live input boxes use the same majority logic. Rescans on streamed text changes too. Always on, no manual toggle needed. Code blocks stay LTR.
+// @version      1.15
+// @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts. Lists (ol/ul) vote per-item then by item majority, so one spec-heavy item can't outweigh the rest. Live input boxes use the same majority logic. Rescans on streamed text changes too. Always on, no manual toggle needed. Code blocks stay LTR.
 // @match        https://claude.ai/*
 // @match        https://gemini.google.com/*
 // @run-at       document-idle
@@ -65,13 +65,28 @@
     return text
   }
 
+  // Direction for a list: vote per-<li> then majority-of-items, not one
+  // word-count tally over the whole list's text. A single spec-heavy item
+  // (e.g. "VM.Standard.A1.Flex ... 24GB RAM") can rack up enough English
+  // words on its own to outweigh two Hebrew-majority items combined - voting
+  // per item first stops one item's word count from swamping the others.
+  function detectListDirection(el) {
+    let rtlItems = 0
+    let ltrItems = 0
+    el.querySelectorAll(':scope > li').forEach((li) => {
+      const dir = detectDirection(directionText(li).trim())
+      if (dir === 'rtl') rtlItems++
+      else if (dir === 'ltr') ltrItems++
+    })
+    if (rtlItems === 0 && ltrItems === 0) return null
+    return rtlItems >= ltrItems ? 'rtl' : 'ltr'
+  }
+
   function tagElement(el) {
     if (el.closest(SKIP_ANCESTOR_SELECTOR)) return
     if (el.closest(LIVE_INPUT_ANCESTOR_SELECTOR)) return // handled by bindInputs instead
     if (!el.textContent?.trim()) return
-    const text = directionText(el).trim()
-    if (!text) return
-    const dir = detectDirection(text)
+    const dir = el.matches(LIST_SELECTOR) ? detectListDirection(el) : detectDirection(directionText(el).trim())
     if (!dir) return
     if (el.getAttribute('data-rtl-auto') === dir) return
     applyDirection(el, dir)
@@ -117,7 +132,7 @@
     })
   }
 
-  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.14')
+  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.15')
 
   // Initial pass
   scanRoot(document.body)
