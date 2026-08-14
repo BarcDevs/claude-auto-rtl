@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Claude/Gemini Auto RTL (per-block, LinkedIn-style)
 // @namespace    bar.rtl.claude
-// @version      1.16
-// @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts. Also tags leaf div/span text (custom UI cards/pickers), not just p/li. Lists (ol/ul) vote per-item then by item majority. Live input boxes use the same majority logic. Rescans on streamed text changes too. Always on, no manual toggle needed. Code blocks stay LTR.
+// @version      1.17
+// @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts, biased to favor RTL so scattered English filler words can't flip a Hebrew sentence. Also tags leaf div/span text (custom UI cards/pickers), not just p/li. Lists (ol/ul) vote per-item then by item majority. Live input boxes use the same majority logic. Rescans on streamed text changes too. Always on, no manual toggle needed. Code blocks stay LTR.
 // @match        https://claude.ai/*
 // @match        https://gemini.google.com/*
 // @run-at       document-idle
@@ -28,6 +28,7 @@
 
   const RTL_CHAR = /[\u0591-\u07FF\uFB1D-\uFDFD\uFE70-\uFEFC]/
   const LTR_CHAR = /[A-Za-z]/
+  const LTR_BIAS_FACTOR = 2
 
   function detectDirection(text) {
     // Majority by WORD count, not char count and not first-strong-char.
@@ -45,7 +46,13 @@
       else if (LTR_CHAR.test(word)) ltrWords++
     }
     if (rtlWords === 0 && ltrWords === 0) return null // no strong char - leave as-is
-    return rtlWords >= ltrWords ? 'rtl' : 'ltr'
+    // LTR must clearly outnumber RTL (not just win by one word) to flip a
+    // Hebrew sentence: short English filler/function words ("word", "one",
+    // "below", "Pick") are common even in overwhelmingly-Hebrew sentences,
+    // and a plain >= majority let a handful of them flip a sentence that
+    // reads as Hebrew (e.g. "איזו word מנצחת today? Pick one מהאפשרויות
+    // below:") to ltr.
+    return ltrWords > rtlWords * LTR_BIAS_FACTOR ? 'ltr' : 'rtl'
   }
 
   function applyDirection(el, dir) {
@@ -140,7 +147,7 @@
     })
   }
 
-  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.16')
+  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.17')
 
   // Initial pass
   scanRoot(document.body)
