@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Claude/Gemini Auto RTL (per-block, LinkedIn-style)
 // @namespace    bar.rtl.claude
-// @version      1.11
-// @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts. Live input boxes lock to first-strong-char instead. Always on, no manual toggle needed. Code blocks stay LTR.
+// @version      1.12
+// @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts. Live input boxes lock to first-strong-char instead. Rescans on streamed text changes too. Always on, no manual toggle needed. Code blocks stay LTR.
 // @match        https://claude.ai/*
 // @match        https://gemini.google.com/*
 // @run-at       document-idle
@@ -117,14 +117,17 @@
     })
   }
 
-  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.11')
+  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.12')
 
   // Initial pass
   scanRoot(document.body)
   bindInputs()
 
-  // Debounced observer - childList only, no characterData (that's what
-  // caused the freeze in an earlier version during streaming responses).
+  // Debounced observer - watches characterData too (text streams into existing
+  // paragraphs via text-node mutations, not childList), so a block that finishes
+  // streaming without a later childList change would otherwise never get rescanned
+  // and stay stuck on the browser's native first-strong-char dir. Throttled to one
+  // scan per 200ms via the `pending` flag, so this doesn't reintroduce the freeze.
   let pending = false
   function scheduleScan() {
     if (pending) return
@@ -138,5 +141,5 @@
   }
 
   const observer = new MutationObserver(() => scheduleScan())
-  observer.observe(document.body, { childList: true, subtree: true })
+  observer.observe(document.body, { childList: true, subtree: true, characterData: true })
 })()
