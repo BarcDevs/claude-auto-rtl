@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Claude/Gemini Auto RTL (per-block, LinkedIn-style)
 // @namespace    bar.rtl.claude
-// @version      1.15
-// @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts. Lists (ol/ul) vote per-item then by item majority, so one spec-heavy item can't outweigh the rest. Live input boxes use the same majority logic. Rescans on streamed text changes too. Always on, no manual toggle needed. Code blocks stay LTR.
+// @version      1.16
+// @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts. Also tags leaf div/span text (custom UI cards/pickers), not just p/li. Lists (ol/ul) vote per-item then by item majority. Live input boxes use the same majority logic. Rescans on streamed text changes too. Always on, no manual toggle needed. Code blocks stay LTR.
 // @match        https://claude.ai/*
 // @match        https://gemini.google.com/*
 // @run-at       document-idle
@@ -16,6 +16,13 @@
 
   const TEXT_SELECTOR = 'p, h1, h2, h3, h4, h5, h6, blockquote, td, th, dd, dt'
   const LIST_SELECTOR = 'ol, ul'
+  // Custom UI (approval cards, option pickers, etc.) renders text in plain
+  // div/span instead of p/li, so none of the above ever match it. Only the
+  // leaf-most div/span (no nested block-level descendant) are eligible, so
+  // a big wrapper div around a whole card doesn't get tagged over its
+  // entire (mixed) content instead of each option individually.
+  const LEAF_SELECTOR = 'div, span'
+  const BLOCK_DESCENDANT_SELECTOR = 'p, div, li, ol, ul, h1, h2, h3, h4, h5, h6, blockquote, td, th, dd, dt'
   const SKIP_ANCESTOR_SELECTOR = 'pre, code'
   const LIVE_INPUT_ANCESTOR_SELECTOR = 'textarea, div[contenteditable="true"]'
 
@@ -86,6 +93,7 @@
     if (el.closest(SKIP_ANCESTOR_SELECTOR)) return
     if (el.closest(LIVE_INPUT_ANCESTOR_SELECTOR)) return // handled by bindInputs instead
     if (!el.textContent?.trim()) return
+    if (el.matches(LEAF_SELECTOR) && el.querySelector(BLOCK_DESCENDANT_SELECTOR)) return // not a leaf - a child will be tagged instead
     const dir = el.matches(LIST_SELECTOR) ? detectListDirection(el) : detectDirection(directionText(el).trim())
     if (!dir) return
     if (el.getAttribute('data-rtl-auto') === dir) return
@@ -96,7 +104,7 @@
   // each item flip direction independently, so the marker/indent side jumped
   // from item to item within the same list. List items inherit direction/
   // text-align from the tagged ol/ul via normal CSS cascade.
-  const BLOCK_SELECTOR = `${TEXT_SELECTOR}, ${LIST_SELECTOR}`
+  const BLOCK_SELECTOR = `${TEXT_SELECTOR}, ${LIST_SELECTOR}, ${LEAF_SELECTOR}`
 
   function scanRoot(root) {
     if (!(root instanceof Element)) return 0
@@ -132,7 +140,7 @@
     })
   }
 
-  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.15')
+  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.16')
 
   // Initial pass
   scanRoot(document.body)
