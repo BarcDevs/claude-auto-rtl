@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name         Claude/Gemini Auto RTL (per-block, LinkedIn-style)
 // @namespace    bar.rtl.claude
-// @version      1.17
-// @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts, biased to favor RTL so scattered English filler words can't flip a Hebrew sentence. Also tags leaf div/span text (custom UI cards/pickers), not just p/li. Lists (ol/ul) vote per-item then by item majority. Live input boxes use the same majority logic. Rescans on streamed text changes too. Always on, no manual toggle needed. Code blocks stay LTR.
+// @version      1.18
+// @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts, biased to favor RTL so scattered English filler words can't flip a Hebrew sentence. Multi-line plain-text pastes (e.g. link previews) get per-line direction instead of one whole-block tally. Also tags leaf div/span text (custom UI cards/pickers), not just p/li. Lists (ol/ul) vote per-item then by item majority. Live input boxes use the same majority logic. Rescans on streamed text changes too. Always on, no manual toggle needed. Code blocks stay LTR.
 // @match        https://claude.ai/*
 // @match        https://gemini.google.com/*
 // @run-at       document-idle
 // @grant        none
-// @updateURL    https://raw.githubusercontent.com/BarcDevs/claude-auto-rtl/main/ClaudeAutoRTL.user.js
+// @updateURL    https://raw.githubusercontitent.com/BarcDevs/claude-auto-rtl/main/ClaudeAutoRTL.user.js
 // @downloadURL  https://raw.githubusercontent.com/BarcDevs/claude-auto-rtl/main/ClaudeAutoRTL.user.js
 // ==/UserScript==
 
@@ -96,11 +96,45 @@
     return rtlItems >= ltrItems ? 'rtl' : 'ltr'
   }
 
+  // For plain-text elements (no inline formatting - just text nodes, e.g. a
+  // pasted link-preview blob with white-space:pre-wrap) that contain literal
+  // newlines: one word-count tally over the whole block picks a single
+  // direction for everything, so a mostly-English pasted block with a
+  // Hebrew line before/after it drags that Hebrew line along with it. Voting
+  // per physical line and wrapping each in its own <span dir=...> - same
+  // principle as the per-<li> list vote - lets each line render in its own
+  // direction. Returns true if it handled (or already handled) the element,
+  // so the caller skips the normal whole-block path.
+  function tagMultilineText(el) {
+    if (![...el.childNodes].every((n) => n.nodeType === Node.TEXT_NODE)) return el.getAttribute('data-rtl-auto') === 'mixed'
+    const text = el.textContent
+    if (!text.includes('\n')) return false
+    const lines = text.split('\n')
+    const dirs = lines.map((line) => detectDirection(line.trim()))
+    if (new Set(dirs.filter(Boolean)).size <= 1) return false // uniform - normal whole-block path handles it
+    el.textContent = ''
+    lines.forEach((line, i) => {
+      const span = document.createElement('span')
+      const dir = dirs[i]
+      if (dir) {
+        span.setAttribute('dir', dir)
+        span.style.setProperty('direction', dir, 'important')
+        span.style.setProperty('text-align', dir === 'rtl' ? 'right' : 'left', 'important')
+      }
+      span.style.display = 'block'
+      span.textContent = line
+      el.appendChild(span)
+    })
+    el.setAttribute('data-rtl-auto', 'mixed')
+    return true
+  }
+
   function tagElement(el) {
     if (el.closest(SKIP_ANCESTOR_SELECTOR)) return
     if (el.closest(LIVE_INPUT_ANCESTOR_SELECTOR)) return // handled by bindInputs instead
     if (!el.textContent?.trim()) return
     if (el.matches(LEAF_SELECTOR) && el.querySelector(BLOCK_DESCENDANT_SELECTOR)) return // not a leaf - a child will be tagged instead
+    if (!el.matches(LIST_SELECTOR) && tagMultilineText(el)) return
     const dir = el.matches(LIST_SELECTOR) ? detectListDirection(el) : detectDirection(directionText(el).trim())
     if (!dir) return
     if (el.getAttribute('data-rtl-auto') === dir) return
@@ -147,7 +181,7 @@
     })
   }
 
-  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.17')
+  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.18')
 
   // Initial pass
   scanRoot(document.body)
