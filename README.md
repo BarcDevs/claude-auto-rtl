@@ -12,6 +12,18 @@ Direction is chosen by majority strong-character count per block, not just the f
 
 Updates: Tampermonkey periodically re-checks this URL for new `@version` values and offers to update.
 
+### If nothing happens after install
+
+Chrome 120+ blocks userscripts by default (Manifest V3 restriction). Enable them:
+
+1. Go to `chrome://extensions`.
+2. Turn on **Developer mode** (top right) — Tampermonkey won't show the next toggle without it.
+3. Click **Details** on Tampermonkey.
+4. Turn on **Allow User Scripts**.
+5. Reload claude.ai / gemini.google.com.
+
+To confirm it's running, open the page console (F12) and look for `[claude-rtl-auto] loaded v1.12`.
+
 ## Notes
 
 - Code blocks (`pre`, `code`) are always left LTR.
