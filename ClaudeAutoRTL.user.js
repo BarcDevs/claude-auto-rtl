@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Claude/Gemini Auto RTL (per-block, LinkedIn-style)
 // @namespace    bar.rtl.claude
-// @version      1.18
+// @version      1.19
 // @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts, biased to favor RTL so scattered English filler words can't flip a Hebrew sentence. Multi-line plain-text pastes (e.g. link previews) get per-line direction instead of one whole-block tally. Also tags leaf div/span text (custom UI cards/pickers), not just p/li. Lists (ol/ul) vote per-item then by item majority. Live input boxes use the same majority logic. Rescans on streamed text changes too. Always on, no manual toggle needed. Code blocks stay LTR.
 // @match        https://claude.ai/*
 // @match        https://gemini.google.com/*
@@ -121,8 +121,12 @@
         span.style.setProperty('direction', dir, 'important')
         span.style.setProperty('text-align', dir === 'rtl' ? 'right' : 'left', 'important')
       }
+      // display:block so dir/text-align actually take effect (inline elements
+      // ignore text-align on themselves). An empty line's span would then
+      // collapse to zero height and silently eat the blank line, so give it
+      // a non-breaking space to hold its height instead.
       span.style.display = 'block'
-      span.textContent = line
+      span.textContent = line || ' '
       el.appendChild(span)
     })
     el.setAttribute('data-rtl-auto', 'mixed')
@@ -181,7 +185,7 @@
     })
   }
 
-  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.18')
+  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.19')
 
   // Initial pass
   scanRoot(document.body)
