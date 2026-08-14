@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Claude/Gemini Auto RTL (per-block, LinkedIn-style)
 // @namespace    bar.rtl.claude
-// @version      1.12
-// @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts. Live input boxes lock to first-strong-char instead. Rescans on streamed text changes too. Always on, no manual toggle needed. Code blocks stay LTR.
+// @version      1.13
+// @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts. Live input boxes use the same majority logic. Rescans on streamed text changes too. Always on, no manual toggle needed. Code blocks stay LTR.
 // @match        https://claude.ai/*
 // @match        https://gemini.google.com/*
 // @run-at       document-idle
@@ -38,18 +38,6 @@
     }
     if (rtlWords === 0 && ltrWords === 0) return null // no strong char - leave as-is
     return rtlWords >= ltrWords ? 'rtl' : 'ltr'
-  }
-
-  // First-strong-char, not majority: for a live composer, direction must lock
-  // in on the first strong character typed and stay put (like dir="auto").
-  // Majority-count would flip the whole box mid-sentence once an English word
-  // outweighs the Hebrew already typed.
-  function detectDirectionFirstStrong(text) {
-    for (const ch of text) {
-      if (RTL_CHAR.test(ch)) return 'rtl'
-      if (LTR_CHAR.test(ch)) return 'ltr'
-    }
-    return null
   }
 
   function applyDirection(el, dir) {
@@ -108,8 +96,13 @@
     document.querySelectorAll('textarea:not([data-rtl-bound]), div[contenteditable="true"]:not([data-rtl-bound])').forEach((el) => {
       el.setAttribute('data-rtl-bound', '')
       const update = () => {
+        // Word-count majority, same as rendered blocks - not first-strong-char.
+        // First-strong-char locked the box to whatever direction the first
+        // typed word happened to be, so a Hebrew sentence that opened with an
+        // English term (e.g. "VM רץ על ה..." or "maintenance window מה זה...")
+        // stayed stuck ltr for its whole (majority-Hebrew) length.
         const text = el.value ?? el.textContent ?? ''
-        const dir = detectDirectionFirstStrong(text) || 'rtl' // default to RTL when empty
+        const dir = detectDirection(text) || 'rtl' // default to RTL when empty
         applyDirection(el, dir)
       }
       el.addEventListener('input', update)
@@ -117,7 +110,7 @@
     })
   }
 
-  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.12')
+  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.13')
 
   // Initial pass
   scanRoot(document.body)
