@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Claude/Gemini Auto RTL (per-block, LinkedIn-style)
 // @namespace    bar.rtl.claude
-// @version      1.13
-// @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts. Live input boxes use the same majority logic. Rescans on streamed text changes too. Always on, no manual toggle needed. Code blocks stay LTR.
+// @version      1.14
+// @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts. Lists (ol/ul) are tagged as a whole so markers don't jump sides per item. Live input boxes use the same majority logic. Rescans on streamed text changes too. Always on, no manual toggle needed. Code blocks stay LTR.
 // @match        https://claude.ai/*
 // @match        https://gemini.google.com/*
 // @run-at       document-idle
@@ -14,7 +14,8 @@
 ;(() => {
   const DEBUG = true
 
-  const TEXT_SELECTOR = 'p, li, h1, h2, h3, h4, h5, h6, blockquote, td, th, dd, dt'
+  const TEXT_SELECTOR = 'p, h1, h2, h3, h4, h5, h6, blockquote, td, th, dd, dt'
+  const LIST_SELECTOR = 'ol, ul'
   const SKIP_ANCESTOR_SELECTOR = 'pre, code'
   const LIVE_INPUT_ANCESTOR_SELECTOR = 'textarea, div[contenteditable="true"]'
 
@@ -76,14 +77,20 @@
     applyDirection(el, dir)
   }
 
+  // Lists are tagged as a whole (ol/ul), not per-<li>: per-item majority let
+  // each item flip direction independently, so the marker/indent side jumped
+  // from item to item within the same list. List items inherit direction/
+  // text-align from the tagged ol/ul via normal CSS cascade.
+  const BLOCK_SELECTOR = `${TEXT_SELECTOR}, ${LIST_SELECTOR}`
+
   function scanRoot(root) {
     if (!(root instanceof Element)) return 0
     let count = 0
-    if (root.matches?.(TEXT_SELECTOR)) {
+    if (root.matches?.(BLOCK_SELECTOR)) {
       tagElement(root)
       count++
     }
-    root.querySelectorAll?.(TEXT_SELECTOR).forEach((el) => {
+    root.querySelectorAll?.(BLOCK_SELECTOR).forEach((el) => {
       tagElement(el)
       count++
     })
@@ -110,7 +117,7 @@
     })
   }
 
-  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.13')
+  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.14')
 
   // Initial pass
   scanRoot(document.body)
