@@ -1,18 +1,35 @@
 // ==UserScript==
 // @name         Claude/Gemini Auto RTL (per-block, LinkedIn-style)
 // @namespace    bar.rtl.claude
-// @version      1.23
-// @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts, biased to favor RTL so scattered English filler words can't flip a Hebrew sentence. Multi-line plain-text pastes (e.g. link previews) get per-line direction instead of one whole-block tally. Also tags leaf div/span text (custom UI cards/pickers), not just p/li, including inside open shadow DOM nested arbitrarily deep (e.g. Gemini/Opal gem widgets), with a periodic fallback rescan in case MutationObserver ever misses staged shadow DOM construction. Lists (ol/ul) vote per-item then by item majority. Live input boxes use the same majority logic. Rescans on streamed text changes too. Always on, no manual toggle needed. Code blocks stay LTR.
+// @version      1.24
+// @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts, biased to favor RTL so scattered English filler words can't flip a Hebrew sentence. Multi-line plain-text pastes (e.g. link previews) get per-line direction instead of one whole-block tally. Also tags leaf div/span text (custom UI cards/pickers), not just p/li, including inside open shadow DOM nested arbitrarily deep (e.g. Gemini/Opal gem widgets) - uses unsafeWindow so shadow DOM traversal works even when Tampermonkey runs the script in its own sandboxed document instead of injecting into the page. Lists (ol/ul) vote per-item then by item majority. Live input boxes use the same majority logic. Rescans on streamed text changes too. Always on, no manual toggle needed. Code blocks stay LTR.
 // @match        https://claude.ai/*
 // @match        https://gemini.google.com/*
 // @run-at       document-idle
-// @grant        none
+// @grant        unsafeWindow
 // @updateURL    https://raw.githubusercontent.com/BarcDevs/claude-auto-rtl/main/ClaudeAutoRTL.user.js
 // @downloadURL  https://raw.githubusercontent.com/BarcDevs/claude-auto-rtl/main/ClaudeAutoRTL.user.js
 // ==/UserScript==
 
 ;(() => {
   const DEBUG = true
+
+  // Tampermonkey can run userscripts inside its own sandboxed userscript.html
+  // document instead of injecting into the real page, depending on install/
+  // Chrome MV3 settings - console messages from this script showed exactly
+  // that (source file "userscript.html", not the actual gemini.google.com
+  // page). In that mode, the ambient `document`/`window` are a bridged proxy
+  // that doesn't correctly forward shadow-DOM state (shadowRoot references
+  // came back inconsistent/empty), even though plain reads/writes worked.
+  // `unsafeWindow` (granted above) is Tampermonkey's explicit escape hatch to
+  // the real page's window - use its document instead of the ambient one so
+  // shadow DOM traversal reflects what's genuinely on the page.
+  const pageWindow = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window
+  const document = pageWindow.document
+  const Element = pageWindow.Element
+  const Node = pageWindow.Node
+  const NodeFilter = pageWindow.NodeFilter
+  const MutationObserver = pageWindow.MutationObserver
 
   const TEXT_SELECTOR = 'p, h1, h2, h3, h4, h5, h6, blockquote, td, th, dd, dt'
   const LIST_SELECTOR = 'ol, ul'
@@ -209,7 +226,7 @@
     })
   }
 
-  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.23')
+  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.24, using', pageWindow === window ? 'ambient window' : 'unsafeWindow')
 
   // Initial pass
   const initialCount = scanRoot(document.body)
