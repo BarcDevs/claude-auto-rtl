@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Claude/Gemini Auto RTL (per-block, LinkedIn-style)
 // @namespace    bar.rtl.claude
-// @version      1.22
+// @version      1.23
 // @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts, biased to favor RTL so scattered English filler words can't flip a Hebrew sentence. Multi-line plain-text pastes (e.g. link previews) get per-line direction instead of one whole-block tally. Also tags leaf div/span text (custom UI cards/pickers), not just p/li, including inside open shadow DOM nested arbitrarily deep (e.g. Gemini/Opal gem widgets), with a periodic fallback rescan in case MutationObserver ever misses staged shadow DOM construction. Lists (ol/ul) vote per-item then by item majority. Live input boxes use the same majority logic. Rescans on streamed text changes too. Always on, no manual toggle needed. Code blocks stay LTR.
 // @match        https://claude.ai/*
 // @match        https://gemini.google.com/*
@@ -209,7 +209,7 @@
     })
   }
 
-  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.22')
+  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.23')
 
   // Initial pass
   const initialCount = scanRoot(document.body)
@@ -272,6 +272,11 @@
     shadowRootsSeen = 0
     const count = scanRoot(document.body)
     observeDeep(document.body)
-    if (DEBUG) console.log(`[claude-rtl-auto] periodic rescan: ${count} elements, ${shadowRootsSeen} shadow roots crossed`)
+    if (DEBUG) {
+      const bbLite = document.querySelector('bb-lite')
+      console.log(
+        `[claude-rtl-auto] periodic rescan: ${count} elements, ${shadowRootsSeen} shadow roots crossed | bb-lite found: ${!!bbLite} | bb-lite.shadowRoot: ${bbLite ? bbLite.shadowRoot : 'n/a'}`
+      )
+    }
   }, 2000)
 })()
