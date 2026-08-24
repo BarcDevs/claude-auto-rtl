@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Claude/Gemini Auto RTL (per-block, LinkedIn-style)
 // @namespace    bar.rtl.claude
-// @version      1.20
-// @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts, biased to favor RTL so scattered English filler words can't flip a Hebrew sentence. Multi-line plain-text pastes (e.g. link previews) get per-line direction instead of one whole-block tally. Also tags leaf div/span text (custom UI cards/pickers), not just p/li, including inside open shadow DOM (e.g. Gemini gem widgets). Lists (ol/ul) vote per-item then by item majority. Live input boxes use the same majority logic. Rescans on streamed text changes too. Always on, no manual toggle needed. Code blocks stay LTR.
+// @version      1.21
+// @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts, biased to favor RTL so scattered English filler words can't flip a Hebrew sentence. Multi-line plain-text pastes (e.g. link previews) get per-line direction instead of one whole-block tally. Also tags leaf div/span text (custom UI cards/pickers), not just p/li, including inside open shadow DOM nested arbitrarily deep (e.g. Gemini/Opal gem widgets) - fixed a bug where the observer never rediscovered shadow roots created after the first scan. Lists (ol/ul) vote per-item then by item majority. Live input boxes use the same majority logic. Rescans on streamed text changes too. Always on, no manual toggle needed. Code blocks stay LTR.
 // @match        https://claude.ai/*
 // @match        https://gemini.google.com/*
 // @run-at       document-idle
@@ -156,19 +156,35 @@
   // declarative shadow DOM, <template shadowrootmode="open">) are otherwise
   // completely invisible to this scan - every element and its descendants
   // inside the shadow tree, recursively into nested shadow roots too.
+  let shadowRootsSeen = 0
   function scanRoot(root) {
     if (!root || !root.querySelectorAll) return 0
     let count = 0
     if (root instanceof Element && root.matches?.(BLOCK_SELECTOR)) {
-      tagElement(root)
+      try {
+        tagElement(root)
+      } catch (e) {
+        if (DEBUG) console.error('[claude-rtl-auto] tagElement threw on root', root, e)
+      }
       count++
     }
     root.querySelectorAll('*').forEach((el) => {
       if (el.matches(BLOCK_SELECTOR)) {
-        tagElement(el)
+        try {
+          tagElement(el)
+        } catch (e) {
+          if (DEBUG) console.error('[claude-rtl-auto] tagElement threw on', el, e)
+        }
         count++
       }
-      if (el.shadowRoot) count += scanRoot(el.shadowRoot)
+      if (el.shadowRoot) {
+        shadowRootsSeen++
+        try {
+          count += scanRoot(el.shadowRoot)
+        } catch (e) {
+          if (DEBUG) console.error('[claude-rtl-auto] scanRoot threw descending into shadow of', el, e)
+        }
+      }
     })
     return count
   }
@@ -193,11 +209,12 @@
     })
   }
 
-  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.20')
+  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.21')
 
   // Initial pass
-  scanRoot(document.body)
+  const initialCount = scanRoot(document.body)
   bindInputs()
+  if (DEBUG) console.log(`[claude-rtl-auto] initial scan: ${initialCount} elements, ${shadowRootsSeen} shadow roots crossed`)
 
   // Debounced observer - watches characterData too (text streams into existing
   // paragraphs via text-node mutations, not childList), so a block that finishes
@@ -210,24 +227,32 @@
     pending = true
     setTimeout(() => {
       pending = false
+      shadowRootsSeen = 0
       const count = scanRoot(document.body)
       bindInputs()
       observeDeep(document.body)
-      if (DEBUG) console.log(`[claude-rtl-auto] scanned ${count} elements`)
+      if (DEBUG) console.log(`[claude-rtl-auto] scanned ${count} elements, ${shadowRootsSeen} shadow roots crossed`)
     }, 200)
   }
 
   // MutationObserver.observe(subtree:true) also never crosses shadow-DOM
   // boundaries, so a shadow tree's own mutations (e.g. streamed gem widget
   // text) would go unnoticed even though the initial scan can now find and
-  // tag it. Track which roots already have an observer attached and add one
-  // for every newly-discovered shadow root as scans turn them up.
+  // tag it. Track which roots already have an observer attached so we don't
+  // re-call observer.observe() on the same root every pass, but - critically -
+  // always keep walking children even for already-observed roots, since a
+  // brand new shadow root can appear nested under one we're already watching
+  // at any time (e.g. a newly streamed gem widget). Gating the whole function
+  // on "already observed" (as an earlier version did) meant document.body -
+  // already observed after the very first call - short-circuited before ever
+  // re-discovering shadow roots created afterward.
   const observedRoots = new WeakSet()
   const observer = new MutationObserver(() => scheduleScan())
   function observeDeep(root) {
-    if (observedRoots.has(root)) return
-    observedRoots.add(root)
-    observer.observe(root, { childList: true, subtree: true, characterData: true })
+    if (!observedRoots.has(root)) {
+      observedRoots.add(root)
+      observer.observe(root, { childList: true, subtree: true, characterData: true })
+    }
     root.querySelectorAll?.('*').forEach((el) => {
       if (el.shadowRoot) observeDeep(el.shadowRoot)
     })
