@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Claude/Gemini Auto RTL (per-block, LinkedIn-style)
 // @namespace    bar.rtl.claude
-// @version      1.21
-// @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts, biased to favor RTL so scattered English filler words can't flip a Hebrew sentence. Multi-line plain-text pastes (e.g. link previews) get per-line direction instead of one whole-block tally. Also tags leaf div/span text (custom UI cards/pickers), not just p/li, including inside open shadow DOM nested arbitrarily deep (e.g. Gemini/Opal gem widgets) - fixed a bug where the observer never rediscovered shadow roots created after the first scan. Lists (ol/ul) vote per-item then by item majority. Live input boxes use the same majority logic. Rescans on streamed text changes too. Always on, no manual toggle needed. Code blocks stay LTR.
+// @version      1.22
+// @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts, biased to favor RTL so scattered English filler words can't flip a Hebrew sentence. Multi-line plain-text pastes (e.g. link previews) get per-line direction instead of one whole-block tally. Also tags leaf div/span text (custom UI cards/pickers), not just p/li, including inside open shadow DOM nested arbitrarily deep (e.g. Gemini/Opal gem widgets), with a periodic fallback rescan in case MutationObserver ever misses staged shadow DOM construction. Lists (ol/ul) vote per-item then by item majority. Live input boxes use the same majority logic. Rescans on streamed text changes too. Always on, no manual toggle needed. Code blocks stay LTR.
 // @match        https://claude.ai/*
 // @match        https://gemini.google.com/*
 // @run-at       document-idle
@@ -209,7 +209,7 @@
     })
   }
 
-  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.21')
+  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.22')
 
   // Initial pass
   const initialCount = scanRoot(document.body)
@@ -258,4 +258,20 @@
     })
   }
   observeDeep(document.body)
+
+  // Belt-and-suspenders: some hosts (e.g. Gemini's Opal gem widgets) build
+  // deeply-nested shadow DOM in stages across their own internal render
+  // cycle, and specific mutation timings there have been observed to leave
+  // MutationObserver never firing again for the rest of the page (root cause
+  // unconfirmed - possibly a mutation batch that lands entirely inside a
+  // shadow root discovered/observed only *after* that same batch already
+  // happened). scanRoot/observeDeep are cheap and idempotent, so just also
+  // re-run them periodically regardless of whether any mutation was observed,
+  // as a reliable fallback.
+  setInterval(() => {
+    shadowRootsSeen = 0
+    const count = scanRoot(document.body)
+    observeDeep(document.body)
+    if (DEBUG) console.log(`[claude-rtl-auto] periodic rescan: ${count} elements, ${shadowRootsSeen} shadow roots crossed`)
+  }, 2000)
 })()
