@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name         Claude/Gemini Auto RTL (per-block, LinkedIn-style)
 // @namespace    bar.rtl.claude
-// @version      1.19
-// @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts, biased to favor RTL so scattered English filler words can't flip a Hebrew sentence. Multi-line plain-text pastes (e.g. link previews) get per-line direction instead of one whole-block tally. Also tags leaf div/span text (custom UI cards/pickers), not just p/li. Lists (ol/ul) vote per-item then by item majority. Live input boxes use the same majority logic. Rescans on streamed text changes too. Always on, no manual toggle needed. Code blocks stay LTR.
+// @version      1.20
+// @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts, biased to favor RTL so scattered English filler words can't flip a Hebrew sentence. Multi-line plain-text pastes (e.g. link previews) get per-line direction instead of one whole-block tally. Also tags leaf div/span text (custom UI cards/pickers), not just p/li, including inside open shadow DOM (e.g. Gemini gem widgets). Lists (ol/ul) vote per-item then by item majority. Live input boxes use the same majority logic. Rescans on streamed text changes too. Always on, no manual toggle needed. Code blocks stay LTR.
 // @match        https://claude.ai/*
 // @match        https://gemini.google.com/*
 // @run-at       document-idle
 // @grant        none
-// @updateURL    https://raw.githubusercontitent.com/BarcDevs/claude-auto-rtl/main/ClaudeAutoRTL.user.js
+// @updateURL    https://raw.githubusercontent.com/BarcDevs/claude-auto-rtl/main/ClaudeAutoRTL.user.js
 // @downloadURL  https://raw.githubusercontent.com/BarcDevs/claude-auto-rtl/main/ClaudeAutoRTL.user.js
 // ==/UserScript==
 
@@ -87,7 +87,7 @@
   function detectListDirection(el) {
     let rtlItems = 0
     let ltrItems = 0
-    el.querySelectorAll(':scope > li').forEach((li) => {
+    ;[...el.children].filter((c) => c.tagName === 'LI').forEach((li) => {
       const dir = detectDirection(directionText(li).trim())
       if (dir === 'rtl') rtlItems++
       else if (dir === 'ltr') ltrItems++
@@ -151,16 +151,24 @@
   // text-align from the tagged ol/ul via normal CSS cascade.
   const BLOCK_SELECTOR = `${TEXT_SELECTOR}, ${LIST_SELECTOR}, ${LEAF_SELECTOR}`
 
+  // querySelectorAll never crosses shadow-DOM boundaries, so custom elements
+  // that render via an open shadow root (e.g. Gemini gem widgets using
+  // declarative shadow DOM, <template shadowrootmode="open">) are otherwise
+  // completely invisible to this scan - every element and its descendants
+  // inside the shadow tree, recursively into nested shadow roots too.
   function scanRoot(root) {
-    if (!(root instanceof Element)) return 0
+    if (!root || !root.querySelectorAll) return 0
     let count = 0
-    if (root.matches?.(BLOCK_SELECTOR)) {
+    if (root instanceof Element && root.matches?.(BLOCK_SELECTOR)) {
       tagElement(root)
       count++
     }
-    root.querySelectorAll?.(BLOCK_SELECTOR).forEach((el) => {
-      tagElement(el)
-      count++
+    root.querySelectorAll('*').forEach((el) => {
+      if (el.matches(BLOCK_SELECTOR)) {
+        tagElement(el)
+        count++
+      }
+      if (el.shadowRoot) count += scanRoot(el.shadowRoot)
     })
     return count
   }
@@ -185,7 +193,7 @@
     })
   }
 
-  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.19')
+  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.20')
 
   // Initial pass
   scanRoot(document.body)
@@ -204,10 +212,25 @@
       pending = false
       const count = scanRoot(document.body)
       bindInputs()
+      observeDeep(document.body)
       if (DEBUG) console.log(`[claude-rtl-auto] scanned ${count} elements`)
     }, 200)
   }
 
+  // MutationObserver.observe(subtree:true) also never crosses shadow-DOM
+  // boundaries, so a shadow tree's own mutations (e.g. streamed gem widget
+  // text) would go unnoticed even though the initial scan can now find and
+  // tag it. Track which roots already have an observer attached and add one
+  // for every newly-discovered shadow root as scans turn them up.
+  const observedRoots = new WeakSet()
   const observer = new MutationObserver(() => scheduleScan())
-  observer.observe(document.body, { childList: true, subtree: true, characterData: true })
+  function observeDeep(root) {
+    if (observedRoots.has(root)) return
+    observedRoots.add(root)
+    observer.observe(root, { childList: true, subtree: true, characterData: true })
+    root.querySelectorAll?.('*').forEach((el) => {
+      if (el.shadowRoot) observeDeep(el.shadowRoot)
+    })
+  }
+  observeDeep(document.body)
 })()
