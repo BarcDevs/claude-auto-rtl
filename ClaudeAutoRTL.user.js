@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Claude/Gemini Auto RTL (per-block, LinkedIn-style)
 // @namespace    bar.rtl.claude
-// @version      1.27
+// @version      1.28
 // @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts, biased to favor RTL so scattered English filler words can't flip a Hebrew sentence. Multi-line plain-text pastes (e.g. link previews) get per-line direction instead of one whole-block tally. Also tags leaf div/span text (custom UI cards/pickers), not just p/li, including inside open shadow DOM nested arbitrarily deep (e.g. Gemini/Opal gem widgets) - uses unsafeWindow so shadow DOM traversal works even when Tampermonkey runs the script in its own sandboxed document instead of injecting into the page. Lists (ol/ul) vote per-item then by item majority. Live input boxes use the same majority logic. Rescans on streamed text changes too. Always on, no manual toggle needed. Code blocks stay LTR.
 // @match        https://claude.ai/*
 // @match        https://gemini.google.com/*
@@ -206,11 +206,60 @@
     return count
   }
 
+  // ProseMirror (Claude's composer) owns its paragraph/list-item DOM nodes
+  // and reconciles them against its own model on ANY external mutation -
+  // confirmed live: setting so much as one unrelated data-attribute on a
+  // live <p> gets it fully replaced with a fresh node (dir="auto", every
+  // attribute gone) within one tick. Any direct write to those nodes is a
+  // fight we always lose, no matter how fast we reapply (verified live:
+  // reapplying via a MutationObserver just spins forever, tens of thousands
+  // of times a second, replacing the node each time - never converges).
+  // So live child blocks are never written to directly. Instead their
+  // direction is applied via a `<style>` tag in <head> (fully outside
+  // ProseMirror's watched subtree) using a structural nth-child path from
+  // the (stable, never-replaced) container down to the target node - CSS
+  // rules aren't a DOM mutation ProseMirror's view is watching for, so they
+  // survive every re-render.
+  let liveStyleEl = null
+  function getLiveStyleEl() {
+    if (!liveStyleEl || !liveStyleEl.isConnected) {
+      liveStyleEl = document.createElement('style')
+      liveStyleEl.id = 'claude-rtl-auto-live-style'
+      document.head.appendChild(liveStyleEl)
+    }
+    return liveStyleEl
+  }
+  const containerRules = new Map() // containerId -> css text
+  function setContainerRules(containerId, css) {
+    containerRules.set(containerId, css)
+    getLiveStyleEl().textContent = [...containerRules.values()].join('\n')
+  }
+  function cssChildPath(container, el) {
+    const segs = []
+    let node = el
+    while (node && node !== container) {
+      const parent = node.parentElement
+      if (!parent) return null
+      const idx = Array.prototype.indexOf.call(parent.children, node) + 1
+      segs.unshift(`> :nth-child(${idx})`)
+      node = parent
+    }
+    return segs.join(' ')
+  }
+  let containerIdSeq = 0
+
   // Live input boxes (textarea / contenteditable): update direction as you type,
   // exactly like LinkedIn's post composer.
   function bindInputs() {
     document.querySelectorAll('textarea:not([data-rtl-bound]), div[contenteditable="true"]:not([data-rtl-bound])').forEach((el) => {
       el.setAttribute('data-rtl-bound', '')
+      const isLiveEditor = el.matches?.('div[contenteditable="true"]')
+      // The container itself is safe to write to directly - it's the editor
+      // host, not a ProseMirror-managed content node, and never gets replaced
+      // (confirmed live across many rounds of writes).
+      const containerId = isLiveEditor ? String(++containerIdSeq) : null
+      if (containerId) el.setAttribute('data-rtl-container-id', containerId)
+
       const update = () => {
         // Word-count majority, same as rendered blocks - not first-strong-char.
         // First-strong-char locked the box to whatever direction the first
@@ -227,19 +276,27 @@
         // happens to start with an English word/name (e.g. "BE-FIT, ...")
         // renders ltr even though our word-majority algo says rtl. Override
         // each child block individually with the same algo.
-        if (el.querySelectorAll) {
+        if (!el.querySelectorAll) return
+        if (containerId) {
+          const rules = []
           el.querySelectorAll('p, li, div').forEach((child) => {
-            const childText = child.textContent ?? ''
-            const childDir = detectDirection(childText)
+            const childDir = detectDirection(child.textContent ?? '')
+            if (!childDir) return
+            const path = cssChildPath(el, child)
+            if (!path) return
+            rules.push(
+              `[data-rtl-container-id="${containerId}"] ${path} { direction: ${childDir} !important; text-align: ${childDir === 'rtl' ? 'right' : 'left'} !important; unicode-bidi: isolate !important; }`
+            )
+          })
+          setContainerRules(containerId, rules.join('\n'))
+        } else {
+          // Plain textarea: no live editor DOM fighting us, safe to tag directly.
+          el.querySelectorAll('p, li, div').forEach((child) => {
+            const childDir = detectDirection(child.textContent ?? '')
             if (childDir) applyDirection(child, childDir)
           })
         }
       }
-      // ProseMirror (Claude's composer) re-renders each <p> on its own
-      // transaction cycle, which can run *after* our 'input' handler and
-      // stamp dir="auto" back onto the paragraph, undoing our override.
-      // Defer to a mutation-observer-driven reapply (guarded against our
-      // own writes) instead of trusting a single synchronous update.
       // setTimeout, not requestAnimationFrame - rAF callbacks are fully
       // suspended while the tab/window isn't visible/focused (confirmed live:
       // a backgrounded tab never re-ran scheduleUpdate after the first call),
@@ -258,35 +315,17 @@
       el.addEventListener('input', scheduleUpdate)
       update()
 
-      if (el.matches?.('div[contenteditable="true"]') && typeof MutationObserver !== 'undefined') {
-        const mo = new MutationObserver((mutations) => {
-          if (applying) return
-          // ProseMirror reverts dir="auto" via a plain attribute mutation
-          // (not a node swap, as assumed before) on both the container and
-          // its <p> children - childList/characterData alone never see it.
-          // We must observe attributes too, but only react when the live
-          // dir differs from what we last stamped (data-rtl-auto), so we
-          // don't retrigger on our own writes (our write -> mutation ->
-          // matches data-rtl-auto -> ignored).
-          const externalDirChange = mutations.some((m) => {
-            if (m.type !== 'attributes') return true
-            const t = m.target
-            return t.getAttribute?.('dir') !== t.getAttribute?.('data-rtl-auto')
-          })
-          if (externalDirChange) scheduleUpdate()
-        })
-        mo.observe(el, {
-          childList: true,
-          subtree: true,
-          characterData: true,
-          attributes: true,
-          attributeFilter: ['dir'],
-        })
+      // Only needed to catch new/removed/edited paragraphs so nth-child
+      // rules get regenerated - we no longer write to child nodes directly,
+      // so there's no self-triggered mutation to guard against here.
+      if (isLiveEditor && typeof MutationObserver !== 'undefined') {
+        const mo = new MutationObserver(() => scheduleUpdate())
+        mo.observe(el, { childList: true, subtree: true, characterData: true })
       }
     })
   }
 
-  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.27, using', pageWindow === window ? 'ambient window' : 'unsafeWindow')
+  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.28, using', pageWindow === window ? 'ambient window' : 'unsafeWindow')
 
   // Initial pass
   const initialCount = scanRoot(document.body)
