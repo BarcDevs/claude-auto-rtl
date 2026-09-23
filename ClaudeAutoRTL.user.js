@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Claude/Gemini Auto RTL (per-block, LinkedIn-style)
 // @namespace    bar.rtl.claude
-// @version      1.25
+// @version      1.26
 // @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts, biased to favor RTL so scattered English filler words can't flip a Hebrew sentence. Multi-line plain-text pastes (e.g. link previews) get per-line direction instead of one whole-block tally. Also tags leaf div/span text (custom UI cards/pickers), not just p/li, including inside open shadow DOM nested arbitrarily deep (e.g. Gemini/Opal gem widgets) - uses unsafeWindow so shadow DOM traversal works even when Tampermonkey runs the script in its own sandboxed document instead of injecting into the page. Lists (ol/ul) vote per-item then by item majority. Live input boxes use the same majority logic. Rescans on streamed text changes too. Always on, no manual toggle needed. Code blocks stay LTR.
 // @match        https://claude.ai/*
 // @match        https://gemini.google.com/*
@@ -235,12 +235,38 @@
           })
         }
       }
-      el.addEventListener('input', update)
+      // ProseMirror (Claude's composer) re-renders each <p> on its own
+      // transaction cycle, which can run *after* our 'input' handler and
+      // stamp dir="auto" back onto the paragraph, undoing our override.
+      // Defer to a mutation-observer-driven reapply (guarded against our
+      // own writes) instead of trusting a single synchronous update.
+      let applying = false
+      const scheduleUpdate = () => {
+        if (applying) return
+        pageWindow.requestAnimationFrame(() => {
+          applying = true
+          update()
+          applying = false
+        })
+      }
+      el.addEventListener('input', scheduleUpdate)
       update()
+
+      if (el.matches?.('div[contenteditable="true"]') && typeof MutationObserver !== 'undefined') {
+        const mo = new MutationObserver(() => {
+          if (applying) return
+          scheduleUpdate()
+        })
+        // childList/characterData only - NOT attributes, since our own
+        // applyDirection() writes the dir attribute and would otherwise
+        // retrigger this observer forever (our write -> mutation -> our
+        // write -> ...).
+        mo.observe(el, { childList: true, subtree: true, characterData: true })
+      }
     })
   }
 
-  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.25, using', pageWindow === window ? 'ambient window' : 'unsafeWindow')
+  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.26, using', pageWindow === window ? 'ambient window' : 'unsafeWindow')
 
   // Initial pass
   const initialCount = scanRoot(document.body)
