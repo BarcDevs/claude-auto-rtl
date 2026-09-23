@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Claude/Gemini Auto RTL (per-block, LinkedIn-style)
 // @namespace    bar.rtl.claude
-// @version      1.26
+// @version      1.27
 // @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts, biased to favor RTL so scattered English filler words can't flip a Hebrew sentence. Multi-line plain-text pastes (e.g. link previews) get per-line direction instead of one whole-block tally. Also tags leaf div/span text (custom UI cards/pickers), not just p/li, including inside open shadow DOM nested arbitrarily deep (e.g. Gemini/Opal gem widgets) - uses unsafeWindow so shadow DOM traversal works even when Tampermonkey runs the script in its own sandboxed document instead of injecting into the page. Lists (ol/ul) vote per-item then by item majority. Live input boxes use the same majority logic. Rescans on streamed text changes too. Always on, no manual toggle needed. Code blocks stay LTR.
 // @match        https://claude.ai/*
 // @match        https://gemini.google.com/*
@@ -240,33 +240,53 @@
       // stamp dir="auto" back onto the paragraph, undoing our override.
       // Defer to a mutation-observer-driven reapply (guarded against our
       // own writes) instead of trusting a single synchronous update.
+      // setTimeout, not requestAnimationFrame - rAF callbacks are fully
+      // suspended while the tab/window isn't visible/focused (confirmed live:
+      // a backgrounded tab never re-ran scheduleUpdate after the first call),
+      // so a user alt-tabbing or pasting into an unfocused window would get
+      // stuck on the browser's native dir="auto" forever. setTimeout still
+      // fires (at worst throttled) in that case.
       let applying = false
       const scheduleUpdate = () => {
         if (applying) return
-        pageWindow.requestAnimationFrame(() => {
+        pageWindow.setTimeout(() => {
           applying = true
           update()
           applying = false
-        })
+        }, 0)
       }
       el.addEventListener('input', scheduleUpdate)
       update()
 
       if (el.matches?.('div[contenteditable="true"]') && typeof MutationObserver !== 'undefined') {
-        const mo = new MutationObserver(() => {
+        const mo = new MutationObserver((mutations) => {
           if (applying) return
-          scheduleUpdate()
+          // ProseMirror reverts dir="auto" via a plain attribute mutation
+          // (not a node swap, as assumed before) on both the container and
+          // its <p> children - childList/characterData alone never see it.
+          // We must observe attributes too, but only react when the live
+          // dir differs from what we last stamped (data-rtl-auto), so we
+          // don't retrigger on our own writes (our write -> mutation ->
+          // matches data-rtl-auto -> ignored).
+          const externalDirChange = mutations.some((m) => {
+            if (m.type !== 'attributes') return true
+            const t = m.target
+            return t.getAttribute?.('dir') !== t.getAttribute?.('data-rtl-auto')
+          })
+          if (externalDirChange) scheduleUpdate()
         })
-        // childList/characterData only - NOT attributes, since our own
-        // applyDirection() writes the dir attribute and would otherwise
-        // retrigger this observer forever (our write -> mutation -> our
-        // write -> ...).
-        mo.observe(el, { childList: true, subtree: true, characterData: true })
+        mo.observe(el, {
+          childList: true,
+          subtree: true,
+          characterData: true,
+          attributes: true,
+          attributeFilter: ['dir'],
+        })
       }
     })
   }
 
-  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.26, using', pageWindow === window ? 'ambient window' : 'unsafeWindow')
+  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.27, using', pageWindow === window ? 'ambient window' : 'unsafeWindow')
 
   // Initial pass
   const initialCount = scanRoot(document.body)
