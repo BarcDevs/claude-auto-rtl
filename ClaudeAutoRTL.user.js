@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Claude/Gemini Auto RTL (per-block, LinkedIn-style)
 // @namespace    bar.rtl.claude
-// @version      1.24
+// @version      1.25
 // @description  Auto-detect direction per text block by majority word count (Hebrew=RTL, English=LTR), like LinkedIn posts, biased to favor RTL so scattered English filler words can't flip a Hebrew sentence. Multi-line plain-text pastes (e.g. link previews) get per-line direction instead of one whole-block tally. Also tags leaf div/span text (custom UI cards/pickers), not just p/li, including inside open shadow DOM nested arbitrarily deep (e.g. Gemini/Opal gem widgets) - uses unsafeWindow so shadow DOM traversal works even when Tampermonkey runs the script in its own sandboxed document instead of injecting into the page. Lists (ol/ul) vote per-item then by item majority. Live input boxes use the same majority logic. Rescans on streamed text changes too. Always on, no manual toggle needed. Code blocks stay LTR.
 // @match        https://claude.ai/*
 // @match        https://gemini.google.com/*
@@ -220,13 +220,27 @@
         const text = el.value ?? el.textContent ?? ''
         const dir = detectDirection(text) || 'rtl' // default to RTL when empty
         applyDirection(el, dir)
+
+        // Child paragraphs (e.g. ProseMirror `<p dir="auto">` per line) carry
+        // their own dir="auto" and recompute direction natively per-line via
+        // first-strong-char, overriding the container - so a paragraph that
+        // happens to start with an English word/name (e.g. "BE-FIT, ...")
+        // renders ltr even though our word-majority algo says rtl. Override
+        // each child block individually with the same algo.
+        if (el.querySelectorAll) {
+          el.querySelectorAll('p, li, div').forEach((child) => {
+            const childText = child.textContent ?? ''
+            const childDir = detectDirection(childText)
+            if (childDir) applyDirection(child, childDir)
+          })
+        }
       }
       el.addEventListener('input', update)
       update()
     })
   }
 
-  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.24, using', pageWindow === window ? 'ambient window' : 'unsafeWindow')
+  if (DEBUG) console.log('[claude-rtl-auto] loaded v1.25, using', pageWindow === window ? 'ambient window' : 'unsafeWindow')
 
   // Initial pass
   const initialCount = scanRoot(document.body)
