@@ -22,7 +22,7 @@ Chrome 120+ blocks userscripts by default (Manifest V3 restriction). Enable them
 4. Turn on **Allow User Scripts**.
 5. Reload claude.ai / gemini.google.com.
 
-To confirm it's running, open the page console (F12) and look for `[claude-rtl-auto] loaded v1.12`.
+To confirm it's running, open the page console (F12) and look for `[claude-rtl-auto] loaded v1.x`.
 
 ## Notes
 
